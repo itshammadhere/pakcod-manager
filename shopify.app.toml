@@ -1,8 +1,10 @@
+name = "PakCOD Manager"
 client_id = "fc68177c4f82f20e2e7ec196c4901e7d"
 application_url = "https://pakcod-app-production.up.railway.app"
+embedded = true
 
 [access_scopes]
-scopes = "read_orders,write_orders,read_products,write_products,read_customers,read_inventory,write_inventory,write_fulfillments"
+scopes = "read_orders,write_orders,read_products,write_products,read_inventory,write_inventory,write_fulfillments"
 
 [auth]
 redirect_urls = ["https://pakcod-app-production.up.railway.app/auth/callback"]
@@ -11,29 +13,9 @@ redirect_urls = ["https://pakcod-app-production.up.railway.app/auth/callback"]
 api_version = "2026-04"
 
   [[webhooks.subscriptions]]
-  uri = "/webhooks/app/uninstalled"
   topics = ["app/uninstalled"]
+  uri = "/webhooks/app/uninstalled"
 
   [[webhooks.subscriptions]]
   topics = ["app/scopes_update"]
   uri = "/webhooks/app/scopes_update"
-
-  [[webhooks.subscriptions]]
-  topics = ["orders/create"]
-  uri = "/webhooks/orders/create"
-
-  [[webhooks.subscriptions]]
-  topics = ["orders/updated"]
-  uri = "/webhooks/orders/updated"
-
-  [[webhooks.subscriptions]]
-  uri = "/webhooks/customers/data_request"
-  compliance_topics = ["customers/data_request"]
-
-  [[webhooks.subscriptions]]
-  uri = "/webhooks/customers/redact"
-  compliance_topics = ["customers/redact"]
-
-  [[webhooks.subscriptions]]
-  uri = "/webhooks/shop/redact"
-  compliance_topics = ["shop/redact"]
