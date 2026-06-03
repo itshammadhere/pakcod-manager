@@ -81,6 +81,7 @@ export async function getOrders(shop: string, filters?: {
   status?: string;
   search?: string;
   courier?: string;
+  city?: string;
   dateFrom?: string;
   dateTo?: string;
   page?: number;
@@ -96,9 +97,18 @@ export async function getOrders(shop: string, filters?: {
     where.status = filters.status;
   }
 
+  if (filters?.city) {
+    where.customerCity = filters.city;
+  }
+
+  if (filters?.courier) {
+    where.shipments = { some: { courierName: filters.courier } };
+  }
+
   if (filters?.search) {
+    const searchNum = parseInt(filters.search);
     where.OR = [
-      { orderNumber: { equals: parseInt(filters.search) || 0 } },
+      ...(isNaN(searchNum) ? [] : [{ orderNumber: { equals: searchNum } }]),
       { customerName: { contains: filters.search, mode: "insensitive" } },
       { customerPhone: { contains: filters.search } },
       { shopifyOrderId: { contains: filters.search } },
