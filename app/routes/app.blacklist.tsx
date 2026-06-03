@@ -7,7 +7,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { getBlacklist } from "../models/blacklist.server";
-import { normalizePhone, formatPhone } from "../services/phone.server";
+import { normalizePhone, formatPhone } from "../services/phone";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);

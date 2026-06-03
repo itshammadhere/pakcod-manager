@@ -1,5 +1,5 @@
 import prisma from "../db.server";
-import { normalizePhone } from "./phone.server";
+import { normalizePhone } from "./phone";
 
 export type RiskLevel = "trusted" | "neutral" | "risky";
 
