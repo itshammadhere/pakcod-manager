@@ -1,15 +1,38 @@
-const GOOGLE_SHEETS_API = "https://sheets.googleapis.com/v4/spreadsheets";
+import { google } from "googleapis";
 
-interface GoogleCreds {
-  accessToken: string;
+let _auth: any = null;
+let _credsEmail: string | null = null;
+let _credsKey: string | null = null;
+
+function getAuth() {
+  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+  const key = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n");
+
+  if (!email || !key) return null;
+
+  if (_auth && _credsEmail === email && _credsKey === key) return _auth;
+
+  _credsEmail = email;
+  _credsKey = key;
+  _auth = new google.auth.JWT({
+    email,
+    key,
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+  });
+
+  return _auth;
 }
 
 export async function exportOrdersToSheet(
   orders: any[],
   spreadsheetId: string,
-  sheetName: string,
-  creds: GoogleCreds
+  sheetName: string
 ) {
+  const auth = getAuth();
+  if (!auth) throw new Error("Google service account not configured. Set GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_PRIVATE_KEY env vars.");
+
+  const sheets = google.sheets({ version: "v4", auth });
+
   const headers = [
     "Order #", "Shopify Order ID", "Customer Name", "Customer Phone",
     "Customer City", "Customer Address", "Total Price", "COD Amount",
@@ -34,69 +57,35 @@ export async function exportOrdersToSheet(
     order.returnReason || "",
   ]);
 
-  const response = await fetch(
-    `${GOOGLE_SHEETS_API}/${spreadsheetId}/values/${sheetName}!A1:Z`,
-    {
-      method: "PUT",
-      headers: {
-        Authorization: `Bearer ${creds.accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        range: `${sheetName}!A1`,
-        majorDimension: "ROWS",
-        values: [headers, ...rows],
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Google Sheets API error: ${error}`);
-  }
-
-  return response.json();
-}
-
-export async function createSheet(
-  title: string,
-  creds: GoogleCreds
-): Promise<string> {
-  const response = await fetch(GOOGLE_SHEETS_API, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${creds.accessToken}`,
-      "Content-Type": "application/json",
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${sheetName}!A1:N${rows.length + 1}`,
+    valueInputOption: "RAW",
+    requestBody: {
+      values: [headers, ...rows],
     },
-    body: JSON.stringify({
-      properties: { title },
-    }),
   });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Failed to create sheet: ${error}`);
-  }
-
-  const data = await response.json();
-  return data.spreadsheetId;
 }
 
-export async function getSheetNames(
-  spreadsheetId: string,
-  creds: GoogleCreds
-): Promise<string[]> {
-  const response = await fetch(
-    `${GOOGLE_SHEETS_API}/${spreadsheetId}`,
-    {
-      headers: {
-        Authorization: `Bearer ${creds.accessToken}`,
-      },
+export async function ensureSheet(spreadsheetId: string, sheetName: string) {
+  const auth = getAuth();
+  if (!auth) return;
+
+  const sheets = google.sheets({ version: "v4", auth });
+
+  try {
+    const existing = await sheets.spreadsheets.get({ spreadsheetId });
+    const hasSheet = existing.data.sheets?.some((s) => s.properties?.title === sheetName);
+
+    if (!hasSheet) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          requests: [{ addSheet: { properties: { title: sheetName } } }],
+        },
+      });
     }
-  );
-
-  if (!response.ok) return [];
-
-  const data = await response.json();
-  return data.sheets?.map((s: any) => s.properties.title) || [];
+  } catch {
+    throw new Error("Could not access sheet. Make sure the sheet exists and is shared with your service account email.");
+  }
 }

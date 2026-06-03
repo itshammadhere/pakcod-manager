@@ -1,7 +1,7 @@
 import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
 import { useLoaderData, useSubmit, useSearchParams } from "react-router";
 import { useState } from "react";
-import { Page, Card, DataTable, Text, Badge, TextField, Select, Button, BlockStack, InlineStack, Box, InlineGrid } from "@shopify/polaris";
+import { Page, Card, DataTable, Text, Badge, TextField, Select, Button, Banner, BlockStack, InlineStack, Box, InlineGrid } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
@@ -26,13 +26,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const url = new URL(request.url);
 
-  const [cities, ordersData] = await Promise.all([
+  const [cities, store, ordersData] = await Promise.all([
     prisma.codOrder.findMany({
       where: { shop: session.shop, customerCity: { not: null } },
       select: { customerCity: true },
       distinct: ["customerCity"],
       orderBy: { customerCity: "asc" },
     }),
+    prisma.store.findUnique({ where: { shop: session.shop }, select: { googleSheetId: true } }),
     getOrders(session.shop, {
       status: url.searchParams.get("status") || undefined,
       search: url.searchParams.get("search") || undefined,
@@ -48,6 +49,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   return {
     ...ordersData,
     cities: cities.map((c) => c.customerCity).filter(Boolean),
+    googleSheetId: store?.googleSheetId,
+    hasGoogleCreds: !!(process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_PRIVATE_KEY),
     currentFilters: {
       status: url.searchParams.get("status") || "",
       search: url.searchParams.get("search") || "",
@@ -79,6 +82,8 @@ export default function OrdersPage() {
   const [cityFilter, setCityFilter] = useState(data.currentFilters.city);
   const [dateFrom, setDateFrom] = useState(data.currentFilters.dateFrom);
   const [dateTo, setDateTo] = useState(data.currentFilters.dateTo);
+  const [exporting, setExporting] = useState(false);
+  const [exportMsg, setExportMsg] = useState<{ success: boolean; text: string } | null>(null);
 
   function applyFilters() {
     const params = new URLSearchParams();
@@ -97,6 +102,36 @@ export default function OrdersPage() {
     setDateFrom("");
     setDateTo("");
     submit("", { method: "GET" });
+  }
+
+  async function exportToSheets() {
+    if (!data.googleSheetId) {
+      setExportMsg({ success: false, text: "No Google Sheet configured. Go to Settings to set it up." });
+      return;
+    }
+    setExporting(true);
+    setExportMsg(null);
+    try {
+      const res = await fetch("/api/orders/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          spreadsheetId: data.googleSheetId,
+          status: statusFilter || undefined,
+          dateFrom: dateFrom || undefined,
+          dateTo: dateTo || undefined,
+        }),
+      });
+      const result = await res.json();
+      if (result.success) {
+        setExportMsg({ success: true, text: `${result.exported} orders exported to Google Sheets!` });
+      } else {
+        setExportMsg({ success: false, text: result.error });
+      }
+    } catch {
+      setExportMsg({ success: false, text: "Export failed. Check your Google Sheets configuration." });
+    }
+    setExporting(false);
   }
 
   const hasFilters = search || statusFilter || cityFilter || dateFrom || dateTo;
@@ -155,12 +190,20 @@ export default function OrdersPage() {
 
         <Card>
           <BlockStack gap="300">
+            {exportMsg && (
+              <Banner tone={exportMsg.success ? "success" : "critical"} onDismiss={() => setExportMsg(null)}>
+                {exportMsg.text}
+              </Banner>
+            )}
             <InlineStack gap="200" align="space-between">
               <Text variant="headingMd" as="h3">
                 {data.total} order{data.total !== 1 ? "s" : ""}
                 {hasFilters ? " (filtered)" : ""}
               </Text>
               <InlineStack gap="200">
+                {data.hasGoogleCreds && data.googleSheetId && (
+                  <Button onClick={exportToSheets} loading={exporting}>Export to Sheets</Button>
+                )}
                 <Button
                   variant="primary"
                   url={`/api/orders/export?${searchParams.toString()}`}
@@ -170,6 +213,11 @@ export default function OrdersPage() {
                 </Button>
               </InlineStack>
             </InlineStack>
+            {!data.googleSheetId && data.hasGoogleCreds && (
+              <Banner tone="info">
+                <p>Configure your Google Sheet ID in <a href="/app/settings">Settings</a> to enable one-click export to Google Sheets.</p>
+              </Banner>
+            )}
             <DataTable
               columnContentTypes={["text", "text", "text", "text", "numeric", "text", "text", "text", "text"]}
               headings={["Order #", "Customer", "Phone", "City", "Amount", "Status", "Courier", "Date", ""]}

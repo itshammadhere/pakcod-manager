@@ -33,6 +33,7 @@ model Store {
   whatsappPhone  String?
   whatsappToken  String?
   defaultCourier String?
+  googleSheetId  String?
   timezone       String    @default("Asia/Karachi")
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt

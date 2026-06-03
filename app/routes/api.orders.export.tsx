@@ -1,5 +1,7 @@
 import { authenticate } from "../shopify.server";
 import { getOrdersForExport } from "../models/order.server";
+import { exportOrdersToSheet, ensureSheet } from "../services/gsheets.server";
+import prisma from "../db.server";
 
 export async function loader({ request }: { request: Request }) {
   const { session } = await authenticate.admin(request);
@@ -51,4 +53,29 @@ export async function loader({ request }: { request: Request }) {
       "Content-Disposition": `attachment; filename="${filename}"`,
     },
   });
+}
+
+export async function action({ request }: { request: Request }) {
+  const { session } = await authenticate.admin(request);
+  const store = await prisma.store.findUnique({ where: { shop: session.shop } });
+  const body = await request.json();
+
+  const sheetId = body.spreadsheetId || store?.googleSheetId;
+  if (!sheetId) {
+    return Response.json({ success: false, error: "No Google Sheet ID configured. Go to Settings → Google Sheets to set it up." }, { status: 400 });
+  }
+
+  const orders = await getOrdersForExport(session.shop, {
+    status: body.status,
+    dateFrom: body.dateFrom,
+    dateTo: body.dateTo,
+  });
+
+  try {
+    await ensureSheet(sheetId, "COD Orders");
+    await exportOrdersToSheet(orders, sheetId, "COD Orders");
+    return Response.json({ success: true, exported: orders.length });
+  } catch (error: any) {
+    return Response.json({ success: false, error: error.message }, { status: 500 });
+  }
 }

@@ -14,7 +14,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const courierConfigs = await prisma.courierConfig.findMany({
     where: { shop: session.shop },
   });
-  return { store, courierConfigs, couriers: getRegisteredCouriers() };
+  const hasGoogleCreds = !!(process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_PRIVATE_KEY);
+  return { store, courierConfigs, couriers: getRegisteredCouriers(), hasGoogleCreds };
 };
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -49,6 +50,14 @@ export async function action({ request }: ActionFunctionArgs) {
         update: { apiKey, apiPassword },
       });
     }
+  }
+
+  if (intent === "updateGoogleSheet") {
+    await prisma.store.upsert({
+      where: { shop: session.shop },
+      create: { shop: session.shop, googleSheetId: formData.get("googleSheetId")?.toString() },
+      update: { googleSheetId: formData.get("googleSheetId")?.toString() },
+    });
   }
 
   return null;
@@ -152,6 +161,43 @@ export default function SettingsPage() {
             </BlockStack>
           </Box>
         </Card>
+
+        <form method="post" data-intent="updateGoogleSheet">
+          <input type="hidden" name="intent" value="updateGoogleSheet" />
+          <Card>
+            <InlineStack gap="200" align="space-between">
+              <Text variant="headingMd" as="h3">Google Sheets Export</Text>
+              {data.hasGoogleCreds ? <Badge tone="success">Connected</Badge> : <Badge tone="attention">Not Configured</Badge>}
+            </InlineStack>
+            <Box paddingBlockStart="400">
+              <BlockStack gap="300">
+                <TextField
+                  label="Google Sheet ID"
+                  autoComplete="off"
+                  helpText="From your sheet URL: https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit"
+                  name="googleSheetId"
+                  value={data.store?.googleSheetId || ""}
+                  onChange={() => {}}
+                />
+                <InlineStack gap="200">
+                  <Button onClick={handleSave("updateGoogleSheet")}>Save Sheet ID</Button>
+                  <Button url="/api/orders/export" external variant="primary">Download CSV</Button>
+                </InlineStack>
+                <Box padding="300" borderRadius="200" background="bg-surface-secondary">
+                  <Text variant="headingXs" as="h4" fontWeight="bold">Setup Instructions</Text>
+                  <BlockStack gap="200">
+                    <Text as="p" variant="bodySm">1. Go to <a href="https://console.cloud.google.com" target="_blank" rel="noreferrer">Google Cloud Console</a> → Enable Google Sheets API</Text>
+                    <Text as="p" variant="bodySm">2. Create a Service Account → Download JSON key</Text>
+                    <Text as="p" variant="bodySm">3. Email your service account: <b>{process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || "Set GOOGLE_SERVICE_ACCOUNT_EMAIL env var"}</b></Text>
+                    <Text as="p" variant="bodySm">4. Share your Google Sheet with that email (Editor access)</Text>
+                    <Text as="p" variant="bodySm">5. Paste the Sheet ID above and Save</Text>
+                    <Text as="p" variant="bodySm">6. Go to Orders page → click "Export to Sheets"</Text>
+                  </BlockStack>
+                </Box>
+              </BlockStack>
+            </Box>
+          </Card>
+        </form>
 
         <Card>
           <Text variant="headingMd" as="h3">Webhook URLs</Text>
