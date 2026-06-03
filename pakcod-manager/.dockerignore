@@ -1,0 +1,11 @@
+node_modules/
+.tmp/
+dist/
+build/
+*.sqlite
+*.sqlite-journal
+.env
+.env.local
+.env.production
+.prisma/
+

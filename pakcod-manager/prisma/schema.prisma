@@ -1,0 +1,179 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id            String    @id
+  shop          String
+  state         String
+  isOnline      Boolean   @default(false)
+  scope         String?
+  expires       DateTime?
+  accessToken   String
+  userId        BigInt?
+  firstName     String?
+  lastName      String?
+  email         String?
+  accountOwner  Boolean   @default(false)
+  locale        String?
+  collaborator  Boolean?  @default(false)
+  emailVerified Boolean?  @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+}
+
+model Store {
+  id             String    @id @default(cuid())
+  shop           String    @unique
+  whatsappPhone  String?
+  whatsappToken  String?
+  defaultCourier String?
+  timezone       String    @default("Asia/Karachi")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  orders    CodOrder[]
+  couriers  CourierConfig[]
+  rules     CodRule[]
+}
+
+model CodOrder {
+  id              String       @id @default(cuid())
+  shop            String
+  shopifyOrderId  String       @unique
+  orderNumber     Int
+  customerName    String?
+  customerPhone   String?
+  customerEmail   String?
+  customerCity    String?
+  customerAddress String?
+  customerNotes   String?
+  totalPrice      Float
+  codAmount       Float
+  status          String       @default("pending")
+  riskScore       String?      @default("neutral")
+  confirmedAt     DateTime?
+  cancelledAt     DateTime?
+  deliveredAt     DateTime?
+  returnedAt      DateTime?
+  returnReason    String?
+  tags            String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  store         Store          @relation(fields: [shop], references: [shop])
+  shipments     Shipment[]
+  statusLogs    StatusLog[]
+  notifications Notification[]
+}
+
+model Shipment {
+  id               String   @id @default(cuid())
+  codOrderId       String
+  courierName      String
+  trackingNumber   String?
+  status           String   @default("pending")
+  bookedAt         DateTime?
+  pickedUpAt       DateTime?
+  inTransitAt      DateTime?
+  outForDeliveryAt DateTime?
+  deliveredAt      DateTime?
+  returnedAt       DateTime?
+  weight           Float?
+  codAmount        Float?
+  shippingCost     Float?
+  notes            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  order CodOrder @relation(fields: [codOrderId], references: [id], onDelete: Cascade)
+}
+
+model StatusLog {
+  id         String   @id @default(cuid())
+  codOrderId String
+  fromStatus String?
+  toStatus   String
+  changedBy  String   @default("system")
+  notes      String?
+  createdAt  DateTime @default(now())
+
+  order CodOrder @relation(fields: [codOrderId], references: [id], onDelete: Cascade)
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  codOrderId  String
+  channel     String   @default("whatsapp")
+  template    String
+  recipient   String
+  message     String?
+  status      String   @default("pending")
+  sentAt      DateTime?
+  deliveredAt DateTime?
+  failedAt    DateTime?
+  error       String?
+  createdAt   DateTime @default(now())
+
+  order CodOrder @relation(fields: [codOrderId], references: [id], onDelete: Cascade)
+}
+
+model CourierConfig {
+  id          String   @id @default(cuid())
+  shop        String
+  courierName String
+  apiKey      String?
+  apiPassword String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  store Store @relation(fields: [shop], references: [shop], onDelete: Cascade)
+
+  @@unique([shop, courierName])
+}
+
+model Settlement {
+  id          String   @id @default(cuid())
+  shop        String
+  courierName String
+  amount      Float
+  settledAt   DateTime?
+  periodStart DateTime?
+  periodEnd   DateTime?
+  status      String   @default("pending")
+  reference   String?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model PhoneBlacklist {
+  id          String   @id @default(cuid())
+  shop        String
+  phoneNumber String
+  reason      String?
+  addedBy     String   @default("manual")
+  createdAt   DateTime @default(now())
+
+  @@unique([shop, phoneNumber])
+}
+
+model CodRule {
+  id        String   @id @default(cuid())
+  shop      String
+  ruleType  String
+  operator  String
+  value     String
+  action    String   @default("block")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  store Store @relation(fields: [shop], references: [shop], onDelete: Cascade)
+}
