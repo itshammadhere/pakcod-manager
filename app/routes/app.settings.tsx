@@ -1,6 +1,6 @@
 import type { HeadersFunction, LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
 import { useLoaderData, useSubmit } from "react-router";
-import { Page, Card, BlockStack, Text, TextField, Select, Button, Banner, Box, InlineStack } from "@shopify/polaris";
+import { Page, Card, BlockStack, Text, TextField, Select, Button, Banner, Badge, Box, InlineStack } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { useState, useCallback } from "react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
@@ -119,22 +119,32 @@ export default function SettingsPage() {
                     <BlockStack gap="200">
                       <InlineStack gap="200" align="space-between">
                         <Text fontWeight="bold" as="span">{courier.label}</Text>
-                        <Button onClick={handleSave("updateCourier")}>Save</Button>
+                        {courier.name === "weship" ? (
+                          <Badge tone="success">Pre-configured</Badge>
+                        ) : (
+                          <Button onClick={handleSave("updateCourier")}>Save</Button>
+                        )}
                       </InlineStack>
-                      <TextField
-                        label="API Key"
-                        autoComplete="off"
-                        name="apiKey"
-                        value={data.courierConfigs.find((c) => c.courierName === courier.name)?.apiKey || ""}
-                        onChange={() => {}}
-                      />
-                      <TextField
-                        label="API Password"
-                        autoComplete="off"
-                        name="apiPassword"
-                        value={data.courierConfigs.find((c) => c.courierName === courier.name)?.apiPassword || ""}
-                        onChange={() => {}}
-                      />
+                      {courier.name === "weship" ? (
+                        <Text as="p" tone="subdued" variant="bodySm">WeShip is pre-configured and available for all couriers automatically.</Text>
+                      ) : (
+                        <>
+                          <TextField
+                            label="API Key"
+                            autoComplete="off"
+                            name="apiKey"
+                            value={data.courierConfigs.find((c) => c.courierName === courier.name)?.apiKey || ""}
+                            onChange={() => {}}
+                          />
+                          <TextField
+                            label="API Password"
+                            autoComplete="off"
+                            name="apiPassword"
+                            value={data.courierConfigs.find((c) => c.courierName === courier.name)?.apiPassword || ""}
+                            onChange={() => {}}
+                          />
+                        </>
+                      )}
                     </BlockStack>
                   </Box>
                 </form>

@@ -22,6 +22,11 @@ export async function action({ request }: { request: Request }) {
       where: { shop: session.shop, courierName, isActive: true },
     });
 
+    const weshipApiKey = process.env.WESHIP_API_KEY;
+    const effectiveConfig = (courierName === "weship" && weshipApiKey)
+      ? { apiKey: weshipApiKey }
+      : (config || {});
+
     const result = await bookShipment(courierName, {
       orderNumber: order.orderNumber,
       customerName: order.customerName || "",
@@ -30,7 +35,7 @@ export async function action({ request }: { request: Request }) {
       customerCity: order.customerCity || "",
       codAmount: order.codAmount,
       weight: weight || undefined,
-    }, config || {});
+    }, effectiveConfig);
 
     if (result.success && result.trackingNumber) {
       await prisma.shipment.create({

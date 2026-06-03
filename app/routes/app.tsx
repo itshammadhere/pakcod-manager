@@ -19,12 +19,12 @@ export default function App() {
     <AppProvider embedded apiKey={apiKey}>
       <PolarisProvider i18n={en}>
         <NavMenu>
-          <a href="/app">Dashboard</a>
-          <a href="/app/orders">Orders</a>
-          <a href="/app/analytics">Analytics</a>
-          <a href="/app/rules">COD Rules</a>
-          <a href="/app/blacklist">Blacklist</a>
-          <a href="/app/settings">Settings</a>
+          <a rel="navigate" href="/app">Dashboard</a>
+          <a rel="navigate" href="/app/orders">Orders</a>
+          <a rel="navigate" href="/app/analytics">Analytics</a>
+          <a rel="navigate" href="/app/rules">COD Rules</a>
+          <a rel="navigate" href="/app/blacklist">Blacklist</a>
+          <a rel="navigate" href="/app/settings">Settings</a>
         </NavMenu>
         <Outlet />
       </PolarisProvider>
