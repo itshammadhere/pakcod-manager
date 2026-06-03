@@ -1,5 +1,5 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
-import styles from "@shopify/polaris/build/css/styles.css?url";
+import styles from "@shopify/polaris/build/esm/styles.css?url";
 
 export const links = () => [
   { rel: "stylesheet", href: styles },

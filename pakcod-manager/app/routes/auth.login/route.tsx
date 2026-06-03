@@ -6,7 +6,7 @@ import { Page, TextField, Button, Card, BlockStack, Box, Text } from "@shopify/p
 
 import { login } from "../../shopify.server";
 import { loginErrorMessage } from "./error.server";
-import styles from "@shopify/polaris/build/css/styles.css?url";
+import styles from "@shopify/polaris/build/esm/styles.css?url";
 
 export const links = () => [
   { rel: "stylesheet", href: styles },
