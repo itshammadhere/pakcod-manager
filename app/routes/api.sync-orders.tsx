@@ -14,8 +14,8 @@ export async function action({ request }: { request: Request }) {
             id
             name
             createdAt
-            financialStatus
-            fulfillmentStatus
+            displayFinancialStatus
+            displayFulfillmentStatus
             tags
             totalPriceSet { shopMoney { amount currencyCode } }
             shippingAddress {
@@ -96,9 +96,9 @@ export async function action({ request }: { request: Request }) {
           });
         }
 
-        if (node.fulfillmentStatus === "fulfilled" || node.fulfillmentStatus === "partial") {
+        if (node.displayFulfillmentStatus === "FULFILLED" || node.displayFulfillmentStatus === "PARTIAL") {
           const { updateOrderStatus } = await import("../models/order.server");
-          if (node.fulfillmentStatus === "fulfilled") {
+          if (node.displayFulfillmentStatus === "FULFILLED") {
             await updateOrderStatus(order.id, {
               status: "delivered",
               notes: "Synced from Shopify - already fulfilled",
