@@ -1,7 +1,11 @@
-client_id = ""
+client_id = "fc68177c4f82f20e2e7ec196c4901e7d"
+application_url = "https://pakcod-app-production.up.railway.app"
 
 [access_scopes]
 scopes = "read_orders,write_orders,read_products,write_products,read_customers,read_inventory,write_inventory,write_fulfillments"
+
+[auth]
+redirect_urls = ["https://pakcod-app-production.up.railway.app/auth/callback"]
 
 [webhooks]
 api_version = "2026-04"
