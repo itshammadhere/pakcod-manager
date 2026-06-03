@@ -12,7 +12,6 @@ export async function action({ request }: { request: Request }) {
         edges {
           node {
             id
-            orderNumber
             name
             createdAt
             financialStatus
@@ -74,10 +73,11 @@ export async function action({ request }: { request: Request }) {
         || `${node.customer?.firstName || ""} ${node.customer?.lastName || ""}`.trim();
 
       try {
-        const order = await createOrder({
+        const orderNumber = parseInt(node.name.replace("#", "")) || 0;
+      const order = await createOrder({
           shop: session.shop,
           shopifyOrderId,
-          orderNumber: node.orderNumber,
+          orderNumber,
           customerName: fullName || "Customer",
           customerPhone: normalizedPhone,
           customerEmail: node.customer?.email || "",
@@ -108,9 +108,9 @@ export async function action({ request }: { request: Request }) {
         }
 
         imported++;
-        importedOrders.push(`#${order.orderNumber}`);
+        importedOrders.push(`#${orderNumber}`);
       } catch (err: any) {
-        console.error(`Sync error for order ${node.orderNumber}:`, err);
+        console.error(`Sync error for order #${orderNumber}:`, err);
         skipped++;
       }
     }
