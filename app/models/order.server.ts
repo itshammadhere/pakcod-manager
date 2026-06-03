@@ -82,6 +82,7 @@ export async function getOrders(shop: string, filters?: {
   search?: string;
   courier?: string;
   city?: string;
+  riskScore?: string;
   dateFrom?: string;
   dateTo?: string;
   page?: number;
@@ -99,6 +100,10 @@ export async function getOrders(shop: string, filters?: {
 
   if (filters?.city) {
     where.customerCity = filters.city;
+  }
+
+  if (filters?.riskScore) {
+    where.riskScore = filters.riskScore;
   }
 
   if (filters?.courier) {

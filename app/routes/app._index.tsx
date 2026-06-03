@@ -70,7 +70,7 @@ export default function DashboardPage() {
           </Box>
           <Box padding="400" borderRadius="200" background="bg-surface-secondary">
             <Text variant="headingXs" as="p" tone="subdued">Pending</Text>
-            <Text variant="heading2xl" as="p" fontWeight="bold" tone="attention">{data.pendingOrders}</Text>
+            <Text variant="heading2xl" as="p" fontWeight="bold">{data.pendingOrders}</Text>
           </Box>
           <Box padding="400" borderRadius="200" background="bg-surface-secondary">
             <Text variant="headingXs" as="p" tone="subdued">Delivery Rate (30d)</Text>
@@ -90,7 +90,8 @@ export default function DashboardPage() {
             <Box paddingBlockStart="300">
               <BlockStack gap="200">
                 {data.recentOrders.length > 0 ? data.recentOrders.map((order) => (
-                  <Box key={order.id} padding="300" borderRadius="200" background="bg-surface-secondary" style={{ cursor: "pointer" }} onClick={() => navigate(`/app/orders/${order.id}`)}>
+                  <div key={order.id} style={{ cursor: "pointer" }} onClick={() => navigate(`/app/orders/${order.id}`)}>
+                    <Box padding="300" borderRadius="200" background="bg-surface-secondary">
                     <InlineStack gap="200" align="space-between" wrap>
                       <InlineStack gap="200">
                         <Text fontWeight="bold" as="span">#{order.orderNumber}</Text>
@@ -102,6 +103,7 @@ export default function DashboardPage() {
                       </InlineStack>
                     </InlineStack>
                   </Box>
+                  </div>
                 )) : (
                   <Text as="p" tone="subdued" alignment="center">No orders yet. Orders will appear here automatically when customers place COD orders.</Text>
                 )}

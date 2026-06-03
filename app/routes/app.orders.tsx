@@ -39,6 +39,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       search: url.searchParams.get("search") || undefined,
       courier: url.searchParams.get("courier") || undefined,
       city: url.searchParams.get("city") || undefined,
+      riskScore: url.searchParams.get("riskScore") || undefined,
       dateFrom: url.searchParams.get("dateFrom") || undefined,
       dateTo: url.searchParams.get("dateTo") || undefined,
       page: parseInt(url.searchParams.get("page") || "1"),
@@ -55,6 +56,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       status: url.searchParams.get("status") || "",
       search: url.searchParams.get("search") || "",
       city: url.searchParams.get("city") || "",
+      riskScore: url.searchParams.get("riskScore") || "",
       dateFrom: url.searchParams.get("dateFrom") || "",
       dateTo: url.searchParams.get("dateTo") || "",
     },
@@ -80,16 +82,20 @@ export default function OrdersPage() {
   const [search, setSearch] = useState(data.currentFilters.search);
   const [statusFilter, setStatusFilter] = useState(data.currentFilters.status);
   const [cityFilter, setCityFilter] = useState(data.currentFilters.city);
+  const [riskFilter, setRiskFilter] = useState(data.currentFilters.riskScore);
   const [dateFrom, setDateFrom] = useState(data.currentFilters.dateFrom);
   const [dateTo, setDateTo] = useState(data.currentFilters.dateTo);
   const [exporting, setExporting] = useState(false);
   const [exportMsg, setExportMsg] = useState<{ success: boolean; text: string } | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<{ success: boolean; text: string } | null>(null);
 
   function applyFilters() {
     const params = new URLSearchParams();
     if (search) params.set("search", search);
     if (statusFilter) params.set("status", statusFilter);
     if (cityFilter) params.set("city", cityFilter);
+    if (riskFilter) params.set("riskScore", riskFilter);
     if (dateFrom) params.set("dateFrom", dateFrom);
     if (dateTo) params.set("dateTo", dateTo);
     submit(params.toString(), { method: "GET" });
@@ -99,6 +105,7 @@ export default function OrdersPage() {
     setSearch("");
     setStatusFilter("");
     setCityFilter("");
+    setRiskFilter("");
     setDateFrom("");
     setDateTo("");
     submit("", { method: "GET" });
@@ -134,7 +141,28 @@ export default function OrdersPage() {
     setExporting(false);
   }
 
-  const hasFilters = search || statusFilter || cityFilter || dateFrom || dateTo;
+  async function syncFromShopify() {
+    setSyncing(true);
+    setSyncMsg(null);
+    try {
+      const res = await fetch("/api/sync-orders", { method: "POST" });
+      const result = await res.json();
+      if (result.success) {
+        setSyncMsg({
+          success: true,
+          text: `Synced ${result.imported} new orders from Shopify (${result.alreadyExists} already existed). ${result.importedOrders?.length > 0 ? "Imported: " + result.importedOrders.join(", ") : ""}`,
+        });
+        setTimeout(() => window.location.reload(), 1500);
+      } else {
+        setSyncMsg({ success: false, text: result.error || "Sync failed" });
+      }
+    } catch {
+      setSyncMsg({ success: false, text: "Sync failed. Check your connection." });
+    }
+    setSyncing(false);
+  }
+
+  const hasFilters = search || statusFilter || cityFilter || riskFilter || dateFrom || dateTo;
 
   return (
     <Page title="COD Orders">
@@ -142,7 +170,7 @@ export default function OrdersPage() {
       <BlockStack gap="500">
         <Card>
           <BlockStack gap="300">
-            <InlineGrid columns={{ xs: 1, md: 3 }} gap="300">
+            <InlineGrid columns={{ xs: 1, md: 2 }} gap="300">
               <TextField
                 label="Search"
                 autoComplete="off"
@@ -150,18 +178,31 @@ export default function OrdersPage() {
                 value={search}
                 onChange={(v) => setSearch(v)}
               />
-              <Select
-                label="Status"
-                options={STATUS_OPTIONS}
-                value={statusFilter}
-                onChange={(v) => setStatusFilter(v)}
-              />
-              <Select
-                label="City"
-                options={[{ label: "All Cities", value: "" }, ...data.cities.map((c) => ({ label: c, value: c }))]}
-                value={cityFilter}
-                onChange={(v) => setCityFilter(v)}
-              />
+              <InlineGrid columns={{ xs: 1, md: 3 }} gap="300">
+                <Select
+                  label="Status"
+                  options={STATUS_OPTIONS}
+                  value={statusFilter}
+                  onChange={(v) => setStatusFilter(v)}
+                />
+                <Select
+                  label="City"
+                  options={[{ label: "All Cities", value: "" }, ...data.cities.filter((c): c is string => c !== null).map((c) => ({ label: c, value: c }))]}
+                  value={cityFilter}
+                  onChange={(v) => setCityFilter(v)}
+                />
+                <Select
+                  label="Risk Score"
+                  options={[
+                    { label: "All Risk Levels", value: "" },
+                    { label: "Trusted", value: "trusted" },
+                    { label: "Neutral", value: "neutral" },
+                    { label: "Risky", value: "risky" },
+                  ]}
+                  value={riskFilter}
+                  onChange={(v) => setRiskFilter(v)}
+                />
+              </InlineGrid>
             </InlineGrid>
             <InlineGrid columns={{ xs: 1, md: 3 }} gap="300">
               <TextField
@@ -195,12 +236,27 @@ export default function OrdersPage() {
                 {exportMsg.text}
               </Banner>
             )}
+            {syncMsg && (
+              <Banner tone={syncMsg.success ? "success" : "critical"} onDismiss={() => setSyncMsg(null)}>
+                {syncMsg.text}
+              </Banner>
+            )}
             <InlineStack gap="200" align="space-between">
               <Text variant="headingMd" as="h3">
                 {data.total} order{data.total !== 1 ? "s" : ""}
                 {hasFilters ? " (filtered)" : ""}
               </Text>
               <InlineStack gap="200">
+                {data.total === 0 && (
+                  <Button onClick={syncFromShopify} loading={syncing} variant="primary">
+                    {syncing ? "Syncing..." : "Sync Orders from Shopify"}
+                  </Button>
+                )}
+                {data.total > 0 && (
+                  <Button onClick={syncFromShopify} loading={syncing}>
+                    {syncing ? "Syncing..." : "Sync"}
+                  </Button>
+                )}
                 {data.hasGoogleCreds && data.googleSheetId && (
                   <Button onClick={exportToSheets} loading={exporting}>Export to Sheets</Button>
                 )}
@@ -219,8 +275,8 @@ export default function OrdersPage() {
               </Banner>
             )}
             <DataTable
-              columnContentTypes={["text", "text", "text", "text", "numeric", "text", "text", "text", "text"]}
-              headings={["Order #", "Customer", "Phone", "City", "Amount", "Status", "Courier", "Date", ""]}
+              columnContentTypes={["text", "text", "text", "text", "numeric", "text", "text", "text", "text", "text"]}
+              headings={["Order #", "Customer", "Phone", "City", "Amount", "Status", "Risk", "Courier", "Date", ""]}
               rows={data.orders.length > 0 ? data.orders.map((order) => [
                 `#${order.orderNumber}`,
                 order.customerName || "—",
@@ -228,11 +284,18 @@ export default function OrdersPage() {
                 order.customerCity || "—",
                 `PKR ${order.codAmount.toLocaleString()}`,
                 <Badge tone={getStatusTone(order.status)}>{order.status.replaceAll("_", " ")}</Badge>,
+                order.riskScore ? <Badge tone={order.riskScore === "trusted" ? "success" : order.riskScore === "risky" ? "critical" : "attention"}>{order.riskScore}</Badge> : <Text as="span" tone="subdued">—</Text>,
                 order.shipments[0]?.courierName || "—",
                 new Date(order.createdAt).toLocaleDateString(),
                 <a href={`/app/orders/${order.id}`} style={{ color: "#2c6ecb" }}>View</a>,
               ]) : [[
-                <Text as="p" tone="subdued">No orders found. COD orders from your store will appear here automatically.</Text>,
+                <Box paddingBlock="400">
+                  <BlockStack gap="300" align="center">
+                    <Text as="p" tone="subdued">No orders found.</Text>
+                    <Text as="p" tone="subdued">Click "Sync Orders from Shopify" above to import your existing orders.</Text>
+                    <Text as="p" tone="subdued" variant="bodySm">New COD orders will also appear automatically after webhook setup.</Text>
+                  </BlockStack>
+                </Box>
               ]]}
             />
           </BlockStack>

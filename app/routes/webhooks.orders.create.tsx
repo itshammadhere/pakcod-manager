@@ -1,10 +1,11 @@
+import prisma from "../db.server";
 import { authenticate } from "../shopify.server";
 import { createOrder } from "../models/order.server";
 import { getStore, getWhatsAppConfig } from "../models/store.server";
-import { addToBlacklist } from "../models/blacklist.server";
 import { checkRules } from "../models/rules.server";
 import { sendOrderConfirmation, sendStaffAlert } from "../services/whatsapp.server";
 import { createNotification, updateNotificationStatus } from "../models/notification.server";
+import { scorePhone } from "../services/risk-scoring.server";
 
 export async function action({ request }: { request: Request }) {
   try {
@@ -16,10 +17,14 @@ export async function action({ request }: { request: Request }) {
     const rawBody = await request.text();
     const orderData = JSON.parse(rawBody);
 
-    const isCod = orderData?.gateway === "cod" || orderData?.gateway === "cash_on_delivery";
+    const gateway = orderData?.gateway || "";
+    const isCod = gateway === "cod" || gateway === "cash_on_delivery";
+    const isManualOrTest = gateway === "manual" || gateway === "bogus" || gateway === "free";
+    const isPendingPayment = orderData?.financial_status === "pending" || orderData?.financial_status === "authorized";
 
-    if (!isCod) {
-      return new Response("Not a COD order", { status: 200 });
+    if (!isCod && !isManualOrTest && !isPendingPayment) {
+      console.log(`[webhook] Skipping order ${orderData?.order_number} - gateway: ${gateway}, financial_status: ${orderData?.financial_status}`);
+      return new Response("Not a COD/manual order", { status: 200 });
     }
 
     const customerPhone =
@@ -57,6 +62,12 @@ export async function action({ request }: { request: Request }) {
       customerNotes: orderData?.note || "",
       totalPrice: parseFloat(orderData.total_price || "0"),
       codAmount: parseFloat(orderData.total_price || "0"),
+    });
+
+    const riskResult = await scorePhone(normalizedPhone, shop);
+    await prisma.codOrder.update({
+      where: { id: order.id },
+      data: { riskScore: riskResult.level },
     });
 
     let tags = orderData.tags || [];

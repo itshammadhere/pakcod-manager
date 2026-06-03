@@ -42,17 +42,44 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     take: 10,
   });
 
+  const deliveredOrders = orders.filter((o) => o.status === "delivered");
+  const returnedOrders = orders.filter((o) => o.status === "returned");
   const total = orders.length;
-  const delivered = orders.filter((o) => o.status === "delivered").length;
-  const returned = orders.filter((o) => o.status === "returned").length;
+  const delivered = deliveredOrders.length;
+  const returned = returnedOrders.length;
   const cancelled = orders.filter((o) => o.status === "cancelled").length;
   const pending = orders.filter((o) => o.status === "pending" || o.status === "pending_confirmation").length;
   const confirmed = orders.filter((o) => o.status === "confirmed" || o.status === "processing").length;
+
+  const cityRto = await Promise.all(
+    byCity.map(async (c) => {
+      const cityOrders = orders.filter((o) => o.customerCity === c.customerCity);
+      const cityDelivered = cityOrders.filter((o) => o.status === "delivered").length;
+      const cityReturned = cityOrders.filter((o) => o.status === "returned").length;
+      const cityRtoRate = cityOrders.length > 0 ? Math.round((cityReturned / cityOrders.length) * 100) : 0;
+      return {
+        city: c.customerCity,
+        total: c._count,
+        delivered: cityDelivered,
+        returned: cityReturned,
+        codAmount: c._sum.codAmount || 0,
+        rtoRate: cityRtoRate,
+      };
+    })
+  );
+
+  const riskDistribution = await prisma.codOrder.groupBy({
+    by: ["riskScore"],
+    where: { shop: session.shop, riskScore: { not: null } },
+    _count: true,
+  });
 
   return {
     daily,
     maxDaily,
     byCity: byCity.map((c) => ({ city: c.customerCity, orders: c._count, codAmount: c._sum.codAmount || 0 })),
+    cityRto,
+    riskDistribution: riskDistribution.map((r) => ({ level: r.riskScore, count: r._count })),
     totals: { total, delivered, returned, cancelled, pending, confirmed },
     days,
   };
@@ -195,6 +222,68 @@ export default function AnalyticsPage() {
                     </div>
                   </Box>
                 ))}
+              </BlockStack>
+            </Box>
+          </Card>
+        </InlineGrid>
+
+        <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
+          <Card>
+            <Text variant="headingMd" as="h3">RTO Rate by City</Text>
+            <Box paddingBlockStart="300">
+              <BlockStack gap="200">
+                {data.cityRto.length > 0 ? data.cityRto.map((c: any) => (
+                  <Box key={c.city}>
+                    <InlineStack gap="200" align="space-between">
+                      <InlineStack gap="200">
+                        <Text as="span">{c.city}</Text>
+                      </InlineStack>
+                      <InlineStack gap="300">
+                        <Text as="span" fontWeight="bold" tone={c.rtoRate > 30 ? "critical" : "subdued"}>{c.rtoRate}% RTO</Text>
+                        <Text as="span" tone="subdued" variant="bodySm">{c.delivered}D/{c.returned}R</Text>
+                      </InlineStack>
+                    </InlineStack>
+                    <div style={{ height: 6, background: "#f1f1f1", borderRadius: 3, marginTop: 4 }}>
+                      <div style={{
+                        width: `${Math.min(c.rtoRate, 100)}%`,
+                        height: "100%",
+                        background: c.rtoRate > 30 ? "#ef4444" : c.rtoRate > 15 ? "#f59e0b" : "#22c55e",
+                        borderRadius: 3,
+                      }} />
+                    </div>
+                  </Box>
+                )) : (
+                  <Text as="p" tone="subdued">No city data</Text>
+                )}
+              </BlockStack>
+            </Box>
+          </Card>
+
+          <Card>
+            <Text variant="headingMd" as="h3">Customer Risk Distribution</Text>
+            <Box paddingBlockStart="300">
+              <BlockStack gap="300">
+                {data.riskDistribution.length > 0 ? data.riskDistribution.map((r: any) => {
+                  const total = data.riskDistribution.reduce((s: number, x: any) => s + x.count, 0);
+                  const pct = Math.round((r.count / total) * 100);
+                  const color = r.level === "trusted" ? "#22c55e" : r.level === "risky" ? "#ef4444" : "#f59e0b";
+                  return (
+                    <Box key={r.level}>
+                      <InlineStack gap="200" align="space-between">
+                        <InlineStack gap="200">
+                          <div style={{ width: 10, height: 10, borderRadius: "50%", background: color, marginTop: 4 }} />
+                          <Text as="span" fontWeight="bold">{r.level.charAt(0).toUpperCase() + r.level.slice(1)}</Text>
+                        </InlineStack>
+                        <Text as="span" fontWeight="bold">{r.count} ({pct}%)</Text>
+                      </InlineStack>
+                      <div style={{ height: 6, background: "#f1f1f1", borderRadius: 3, marginTop: 4 }}>
+                        <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 3 }} />
+                      </div>
+                    </Box>
+                  );
+                }) : (
+                  <Text as="p" tone="subdued">No risk data yet. Risk scores are assigned when orders are processed.</Text>
+                )}
               </BlockStack>
             </Box>
           </Card>

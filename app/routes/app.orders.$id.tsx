@@ -8,6 +8,7 @@ import { authenticate } from "../shopify.server";
 import { getOrder } from "../models/order.server";
 import prisma from "../db.server";
 import { getRegisteredCouriers, bookShipment } from "../services/couriers";
+import { scorePhone, getOrdersByPhone } from "../services/risk-scoring.server";
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -19,11 +20,21 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const courierConfigs = await prisma.courierConfig.findMany({ where: { shop: session.shop } });
   const weshipConfig = courierConfigs.find((c) => c.courierName === "weship");
 
+  let riskScore = null;
+  let duplicateOrders: any[] = [];
+
+  if (order.customerPhone) {
+    riskScore = await scorePhone(order.customerPhone, session.shop);
+    duplicateOrders = await getOrdersByPhone(order.customerPhone, session.shop, order.id);
+  }
+
   return {
     order,
     couriers: getRegisteredCouriers(),
     hasWeShip: !!weshipConfig?.apiKey || !!process.env.WESHIP_API_KEY,
     weshipKey: weshipConfig?.apiKey || process.env.WESHIP_API_KEY || "",
+    riskScore,
+    duplicateOrders,
   };
 };
 
@@ -108,6 +119,11 @@ export default function OrderDetailPage() {
   const shipment = order.shipments[0];
   const logs = order.statusLogs || [];
   const notifications = order.notifications || [];
+  const riskScore = data.riskScore;
+  const dupes = data.duplicateOrders || [];
+
+  const riskTone = riskScore?.level === "trusted" ? "success" : riskScore?.level === "risky" ? "critical" : "warning";
+  const riskLabel = riskScore?.level ? riskScore.level.charAt(0).toUpperCase() + riskScore.level.slice(1) : "Unknown";
 
   function updateStatus(status: string) {
     setLoading(status);
@@ -141,6 +157,27 @@ export default function OrderDetailPage() {
         {bookingMsg && (
           <Banner tone={bookingMsg.success ? "success" : "critical"} onDismiss={() => setBookingMsg(null)}>
             {bookingMsg.text}
+          </Banner>
+        )}
+
+        {riskScore && (
+          <Banner tone={riskTone} title={`${riskLabel} Customer`}>
+            <p>{riskScore.reason}</p>
+            <p>Phone history: {riskScore.history.total} orders, {riskScore.history.delivered} delivered, {riskScore.history.returned} returned</p>
+          </Banner>
+        )}
+
+        {dupes.length > 0 && (
+          <Banner tone="warning" title={`${dupes.length} other order${dupes.length > 1 ? "s" : ""} from this phone`}>
+            <BlockStack gap="200">
+              {dupes.slice(0, 5).map((d: any) => (
+                <InlineStack key={d.id} gap="200">
+                  <a href={`/app/orders/${d.id}`}>#{d.orderNumber}</a>
+                  <Badge tone={d.status === "delivered" ? "success" : d.status === "returned" || d.status === "cancelled" ? "critical" : "attention"}>{d.status}</Badge>
+                  <Text as="span" variant="bodySm" tone="subdued">{new Date(d.createdAt).toLocaleDateString()}</Text>
+                </InlineStack>
+              ))}
+            </BlockStack>
           </Banner>
         )}
 
@@ -222,8 +259,8 @@ export default function OrderDetailPage() {
                   />
                 </Box>
                 <Box paddingBlockStart="300">
-                  <Button onClick={bookCourier} disabled={!courier || loading !== null}>
-                    {loading === "booking" ? <Spinner size="small" /> : "Book Shipment"}
+                  <Button onClick={bookCourier} disabled={!courier || loading !== null} loading={loading === "booking"}>
+                    Book Shipment
                   </Button>
                 </Box>
               </InlineStack>
