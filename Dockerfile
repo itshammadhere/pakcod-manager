@@ -23,4 +23,4 @@ COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/package.json ./package.json
 
 EXPOSE 3000
-CMD ["sh", "-c", "npx prisma migrate deploy && npm run docker-start"]
+CMD ["npm", "run", "docker-start"]
