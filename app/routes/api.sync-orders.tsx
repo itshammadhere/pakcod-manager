@@ -36,6 +36,14 @@ export async function action({ request }: { request: Request }) {
     const data = await response.json();
     const orders = data.orders || [];
 
+    console.log(`[SYNC] REST API response: ${orders.length} orders found for ${shop}`);
+    if (orders.length > 0) {
+      console.log(`[SYNC] First order: ${JSON.stringify({ id: orders[0].id, name: orders[0].name, financial_status: orders[0].financial_status })}`);
+    }
+    if (data.errors) {
+      console.log(`[SYNC] REST API errors: ${JSON.stringify(data.errors)}`);
+    }
+
     let imported = 0;
     let alreadyExists = 0;
     const errors: { orderId: string; message: string }[] = [];
@@ -131,6 +139,14 @@ export async function action({ request }: { request: Request }) {
       total: orders.length,
       errors,
       importedOrders,
+      debug: {
+        shop,
+        apiStatus: response.status,
+        orderCount: orders.length,
+        firstOrderIds: orders.slice(0, 3).map((o: any) => ({ id: o.id, name: o.name })),
+        rawKeys: Object.keys(data),
+        rawPreview: JSON.stringify(data).substring(0, 500),
+      },
     });
   } catch (error: any) {
     console.error("Sync orders error:", error);

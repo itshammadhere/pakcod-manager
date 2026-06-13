@@ -148,13 +148,15 @@ export default function OrdersPage() {
       const res = await fetch("/api/sync-orders", { method: "POST" });
       const result = await res.json();
       if (result.success) {
+        const debug = result.debug ? ` [API:${result.debug.apiStatus} shop:${result.debug.shop} keys:${result.debug.rawKeys?.join(",")}]` : "";
         setSyncMsg({
           success: true,
-          text: `Synced ${result.imported} new orders from Shopify (${result.alreadyExists} already existed). ${result.importedOrders?.length > 0 ? "Imported: " + result.importedOrders.join(", ") : ""}`,
+          text: `Synced ${result.imported} new orders from Shopify (${result.alreadyExists} already existed). Total from API: ${result.total}.${debug} ${result.importedOrders?.length > 0 ? "Imported: " + result.importedOrders.join(", ") : ""}`,
         });
         setTimeout(() => window.location.reload(), 1500);
       } else {
-        setSyncMsg({ success: false, text: result.error || "Sync failed" });
+        const debug = result.debug ? ` [Raw: ${result.debug.rawPreview}]` : "";
+        setSyncMsg({ success: false, text: (result.error || "Sync failed") + debug });
       }
     } catch {
       setSyncMsg({ success: false, text: "Sync failed. Check your connection." });
