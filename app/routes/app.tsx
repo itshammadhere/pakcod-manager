@@ -1,28 +1,17 @@
+// FIXED: Removed runtime registerWebhooks() call from loader to prevent duplicate webhook delivery.
+// Webhooks are registered ONLY via shopify.app.toml static subscriptions.
 import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
 import { Outlet, useLoaderData, useRouteError } from "react-router";
 import { AppProvider as PolarisProvider } from "@shopify/polaris";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 import { NavMenu } from "@shopify/app-bridge-react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
-import { authenticate, registerWebhooks } from "../shopify.server";
+import { authenticate } from "../shopify.server";
 import en from "@shopify/polaris/locales/en.json";
-
-const webhooksRegistered = new Set<string>();
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
-
-  if (!webhooksRegistered.has(session.shop)) {
-    try {
-      await registerWebhooks({ session });
-      webhooksRegistered.add(session.shop);
-      console.log(`[webhooks] Registered for ${session.shop}`);
-    } catch (err) {
-      console.error(`[webhooks] Registration error for ${session.shop}:`, err);
-    }
-  }
-
-  return { apiKey: process.env.SHOPIFY_API_KEY || "" };
+  return { apiKey: process.env.SHOPIFY_API_KEY || "", shop: session.shop };
 };
 
 export default function App() {

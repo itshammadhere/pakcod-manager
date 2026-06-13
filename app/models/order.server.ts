@@ -59,6 +59,36 @@ export async function createOrder(data: CreateOrderData) {
   return order;
 }
 
+// FIXED: Idempotent upsert — returns existing order if shopifyOrderId already exists,
+// otherwise creates a new one. Used by webhook handler to prevent duplicate processing.
+export async function upsertOrder(data: CreateOrderData) {
+  const existing = await prisma.codOrder.findUnique({
+    where: { shopifyOrderId: data.shopifyOrderId },
+  });
+  if (existing) return { order: existing, created: false };
+
+  const order = await prisma.codOrder.create({
+    data: {
+      shop: data.shop,
+      shopifyOrderId: data.shopifyOrderId,
+      orderNumber: data.orderNumber,
+      customerName: data.customerName,
+      customerPhone: data.customerPhone,
+      customerEmail: data.customerEmail,
+      customerCity: data.customerCity,
+      customerAddress: data.customerAddress,
+      customerNotes: data.customerNotes,
+      totalPrice: data.totalPrice,
+      codAmount: data.codAmount,
+      status: "pending",
+      tags: data.tags,
+    },
+  });
+
+  await logStatusChange(order.id, null, "pending", "system", "Order created from Shopify");
+  return { order, created: true };
+}
+
 export async function getOrder(id: string) {
   return prisma.codOrder.findUnique({
     where: { id },

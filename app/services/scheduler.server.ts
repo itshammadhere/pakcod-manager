@@ -1,12 +1,20 @@
+// FIXED: Added Authorization: Bearer <CRON_SECRET> header to cron endpoint calls.
 export function setupScheduler() {
   const cronInterval = parseInt(process.env.TRACKING_SYNC_INTERVAL || "7200000");
+  const cronSecret = process.env.CRON_SECRET || "";
 
   const syncTracking = async () => {
     console.log(`[${new Date().toISOString()}] Running tracking sync...`);
     try {
       const response = await fetch(
         `${process.env.SHOPIFY_APP_URL}/api/cron/sync-tracking`,
-        { method: "POST" }
+        {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${cronSecret}`,
+            "Content-Type": "application/json",
+          },
+        }
       );
       if (response.ok) {
         console.log("Tracking sync completed");
@@ -23,7 +31,13 @@ export function setupScheduler() {
     try {
       const response = await fetch(
         `${process.env.SHOPIFY_APP_URL}/api/cron/cancel-unconfirmed`,
-        { method: "POST" }
+        {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${cronSecret}`,
+            "Content-Type": "application/json",
+          },
+        }
       );
       if (response.ok) {
         console.log("Unconfirmed orders check completed");

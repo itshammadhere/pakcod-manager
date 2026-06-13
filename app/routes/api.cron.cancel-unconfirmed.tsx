@@ -1,8 +1,20 @@
+// FIXED: Added CRON_SECRET authentication check. Only requests with
+// Authorization: Bearer <CRON_SECRET> header can trigger this endpoint.
 import prisma from "../db.server";
 import { updateOrderStatus } from "../models/order.server";
-import { scorePhone } from "../services/risk-scoring.server";
 
-export async function action() {
+function verifyCronSecret(request: Request): boolean {
+  const auth = request.headers.get("Authorization") || "";
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return false;
+  return auth === `Bearer ${secret}`;
+}
+
+export async function action({ request }: { request: Request }) {
+  if (!verifyCronSecret(request)) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 

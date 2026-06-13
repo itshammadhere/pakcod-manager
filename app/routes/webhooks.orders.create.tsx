@@ -1,6 +1,8 @@
+// FIXED: Added idempotency via upsertOrder — if shopifyOrderId already exists,
+// skips all downstream processing to prevent duplicate effects from double webhook delivery.
 import prisma from "../db.server";
 import { authenticate } from "../shopify.server";
-import { createOrder } from "../models/order.server";
+import { upsertOrder } from "../models/order.server";
 import { getStore, getWhatsAppConfig } from "../models/store.server";
 import { checkRules } from "../models/rules.server";
 import { sendOrderConfirmation, sendStaffAlert } from "../services/whatsapp.server";
@@ -50,7 +52,7 @@ export async function action({ request }: { request: Request }) {
       return new Response("Order blocked - blacklisted phone", { status: 200 });
     }
 
-    const order = await createOrder({
+    const { order, created } = await upsertOrder({
       shop,
       shopifyOrderId: String(orderData.id),
       orderNumber: orderData.order_number,
@@ -63,6 +65,12 @@ export async function action({ request }: { request: Request }) {
       totalPrice: parseFloat(orderData.total_price || "0"),
       codAmount: parseFloat(orderData.total_price || "0"),
     });
+
+    // If order already existed (duplicate webhook), skip downstream processing
+    if (!created) {
+      console.log(`[webhook] Order ${orderData.order_number} already exists, skipping processing`);
+      return new Response("OK", { status: 200 });
+    }
 
     const riskResult = await scorePhone(normalizedPhone, shop);
     await prisma.codOrder.update({
