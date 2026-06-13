@@ -1,6 +1,3 @@
-// Uses Shopify Admin GraphQL API with full order data.
-// Requires the app to complete Protected Customer Data assessment
-// in the Shopify Partners dashboard (see error handling below).
 import { authenticate } from "../shopify.server";
 import { createOrder, getOrderByShopifyId } from "../models/order.server";
 import { scorePhone } from "../services/risk-scoring.server";
@@ -10,66 +7,34 @@ const BATCH_SIZE = 10;
 
 export async function action({ request }: { request: Request }) {
   try {
-    const { session, admin } = await authenticate.admin(request);
+    const { session } = await authenticate.admin(request);
 
-    const query = `{
-      orders(first: 50, reverse: true) {
-        edges {
-          node {
-            id
-            name
-            createdAt
-            tags
-            totalPriceSet { shopMoney { amount currencyCode } }
-            shippingAddress {
-              firstName
-              lastName
-              phone
-              address1
-              address2
-              city
-              province
-              zip
-              country
-            }
-            customer {
-              firstName
-              lastName
-              email
-              phone
-            }
-          }
-        }
-      }
-    }`;
+    const accessToken = session.accessToken;
+    const shop = session.shop;
 
-    const response = await admin.graphql(query);
-    const body = await response.text();
+    const url = `https://${shop}/admin/api/2026-04/orders.json?status=any&limit=50`;
+    const response = await fetch(url, {
+      headers: {
+        "X-Shopify-Access-Token": accessToken,
+        "Content-Type": "application/json",
+      },
+    });
 
-    let result: any;
-    try {
-      result = JSON.parse(body);
-    } catch {
-      return Response.json({ success: false, error: `GraphQL returned non-JSON: ${body.substring(0, 500)}` }, { status: 500 });
-    }
-
-    if (result.errors) {
-      const errorMsg = result.errors.map((e: any) => e.message).join(", ");
-      if (errorMsg.toLowerCase().includes("protected customer data") || errorMsg.toLowerCase().includes("not approved")) {
+    if (!response.ok) {
+      const text = await response.text();
+      if (response.status === 403 || text.includes("access denied") || text.includes("protected")) {
         return Response.json({
           success: false,
-          error: "Shopify requires Protected Customer Data approval. Go to your Shopify Partners dashboard → Apps → PakCOD Manager → Configuration → Protected Customer Data → fill the form and save. It's instant for development stores.",
+          error: "Shopify denied access. Go to Partners Dashboard → Apps → PakCOD Manager → Protected Customer Data → fill the form and save.",
           protectedDataError: true,
-          detail: errorMsg,
+          detail: text.substring(0, 500),
         }, { status: 403 });
       }
-      return Response.json({
-        success: false,
-        error: `GraphQL error: ${errorMsg}`,
-      }, { status: 500 });
+      return Response.json({ success: false, error: `Shopify API error ${response.status}: ${text.substring(0, 500)}` }, { status: 500 });
     }
 
-    const edges = result?.data?.orders?.edges || [];
+    const data = await response.json();
+    const orders = data.orders || [];
 
     let imported = 0;
     let alreadyExists = 0;
@@ -88,39 +53,33 @@ export async function action({ request }: { request: Request }) {
       tags: string;
     }[] = [];
 
-    for (const edge of edges) {
-      const node = edge.node;
-      const shopifyOrderId = node.id.replace("gid://shopify/Order/", "");
-      const phone = node.shippingAddress?.phone || node.customer?.phone || "";
-      const normalizedPhone = phone.replace(/[^0-9]/g, "");
-      const orderNumber = parseInt(node.name.replace("#", "")) || 0;
-
+    for (const order of orders) {
+      const shopifyOrderId = String(order.id);
       const existing = await getOrderByShopifyId(shopifyOrderId);
       if (existing) {
         alreadyExists++;
         continue;
       }
 
-      const shippingAddress = node.shippingAddress;
-      const fullName = `${shippingAddress?.firstName || ""} ${shippingAddress?.lastName || ""}`.trim()
-        || `${node.customer?.firstName || ""} ${node.customer?.lastName || ""}`.trim();
+      const phone = order.shipping_address?.phone || order.customer?.phone || "";
+      const normalizedPhone = phone.replace(/[^0-9]/g, "");
+      const orderNumber = parseInt(String(order.order_number)) || 0;
 
-      let tags = "";
-      if (Array.isArray(node.tags)) {
-        tags = node.tags.join(",");
-      } else if (typeof node.tags === "string") {
-        tags = node.tags;
-      }
+      const shippingAddress = order.shipping_address;
+      const fullName = `${shippingAddress?.first_name || ""} ${shippingAddress?.last_name || ""}`.trim()
+        || `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim();
+
+      const tags = Array.isArray(order.tags) ? order.tags.join(",") : (order.tags || "");
 
       batchQueue.push({
         shopifyOrderId,
         orderNumber,
         customerName: fullName || `Order #${orderNumber}`,
         customerPhone: normalizedPhone,
-        customerEmail: node.customer?.email || "",
+        customerEmail: order.customer?.email || "",
         customerCity: shippingAddress?.city || "",
         customerAddress: [shippingAddress?.address1, shippingAddress?.address2].filter(Boolean).join(", "),
-        totalPrice: parseFloat(node.totalPriceSet?.shopMoney?.amount || "0"),
+        totalPrice: parseFloat(order.total_price || "0"),
         tags,
       });
     }
@@ -130,7 +89,7 @@ export async function action({ request }: { request: Request }) {
       const results = await Promise.allSettled(
         batch.map(async (item) => {
           const order = await createOrder({
-            shop: session.shop,
+            shop,
             shopifyOrderId: item.shopifyOrderId,
             orderNumber: item.orderNumber,
             customerName: item.customerName,
@@ -144,7 +103,7 @@ export async function action({ request }: { request: Request }) {
           });
 
           if (item.customerPhone) {
-            const risk = await scorePhone(item.customerPhone, session.shop);
+            const risk = await scorePhone(item.customerPhone, shop);
             await prisma.codOrder.update({
               where: { id: order.id },
               data: { riskScore: risk.level },
@@ -169,7 +128,7 @@ export async function action({ request }: { request: Request }) {
       success: true,
       imported,
       alreadyExists,
-      total: edges.length,
+      total: orders.length,
       errors,
       importedOrders,
     });
