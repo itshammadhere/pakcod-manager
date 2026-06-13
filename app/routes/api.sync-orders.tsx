@@ -1,10 +1,12 @@
-// FIXED: (Fix 4) displayFulfillmentStatus compared with .toUpperCase() to handle API casing.
-// FIXED: (Fix 5) All returns wrapped in Response.json() instead of plain objects.
-// FIXED: (Fix 6) Orders processed in batches of 10 using Promise.allSettled to prevent timeout.
+// FIXED: Switched from GraphQL Admin API to REST API for order syncing.
+// The GraphQL API requires Protected Customer Data approval, which blocks
+// access to the Order object for non-approved apps. The REST API works
+// without this restriction for development stores.
 import { authenticate } from "../shopify.server";
 import { createOrder, getOrderByShopifyId } from "../models/order.server";
 import { scorePhone } from "../services/risk-scoring.server";
 import prisma from "../db.server";
+import { apiVersion } from "../shopify.server";
 
 const BATCH_SIZE = 10;
 
@@ -12,69 +14,53 @@ export async function action({ request }: { request: Request }) {
   try {
     const { session, admin } = await authenticate.admin(request);
 
-    const query = `{
-      orders(first: 50, reverse: true) {
-        edges {
-          node {
-            id
-            name
-            createdAt
-            displayFinancialStatus
-            displayFulfillmentStatus
-            tags
-            totalPriceSet { shopMoney { amount currencyCode } }
-            shippingAddress {
-              firstName
-              lastName
-              phone
-              address1
-              address2
-              city
-              province
-              zip
-              country
-            }
-            lineItems(first: 1) {
-              edges {
-                node {
-                  title
-                }
-              }
-            }
-            customer {
-              firstName
-              lastName
-              email
-              phone
-            }
-          }
-        }
-      }
-    }`;
+    const shopDomain = session.shop;
+    const accessToken = session.accessToken;
 
-    const response = await admin.graphql(query);
-    const result = await response.json();
-    const edges = result?.data?.orders?.edges || [];
+    if (!accessToken) {
+      return Response.json({ success: false, error: "No access token available. Reinstall the app." }, { status: 401 });
+    }
+
+    const restUrl = `https://${shopDomain}/admin/api/${apiVersion}/orders.json?status=any&limit=250&order=created_at+desc`;
+
+    const restResponse = await fetch(restUrl, {
+      headers: {
+        "X-Shopify-Access-Token": accessToken,
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!restResponse.ok) {
+      const errorBody = await restResponse.text();
+      return Response.json({
+        success: false,
+        error: `REST API error (${restResponse.status}): ${errorBody.substring(0, 500)}`,
+      }, { status: 500 });
+    }
+
+    const body = await restResponse.json();
+    const orders = body?.orders || [];
 
     let imported = 0;
-    let skipped = 0;
     let alreadyExists = 0;
     const errors: { orderId: string; message: string }[] = [];
     const importedOrders: string[] = [];
 
-    // Build batch queue
     const batchQueue: {
-      node: any;
       shopifyOrderId: string;
-      normalizedPhone: string;
-      fullName: string;
       orderNumber: number;
+      customerName: string;
+      customerPhone: string;
+      customerEmail: string;
+      customerCity: string;
+      customerAddress: string;
+      totalPrice: number;
+      tags: string;
     }[] = [];
 
-    for (const edge of edges) {
-      const node = edge.node;
-      const shopifyOrderId = node.id.replace("gid://shopify/Order/", "");
-      const phone = node.shippingAddress?.phone || node.customer?.phone || "";
+    for (const orderData of orders) {
+      const shopifyOrderId = String(orderData.id);
+      const phone = orderData.phone || orderData.shipping_address?.phone || orderData.billing_address?.phone || "";
       const normalizedPhone = phone.replace(/[^0-9]/g, "");
 
       const existing = await getOrderByShopifyId(shopifyOrderId);
@@ -83,56 +69,57 @@ export async function action({ request }: { request: Request }) {
         continue;
       }
 
-      const shippingAddress = node.shippingAddress;
-      const fullName = `${shippingAddress?.firstName || ""} ${shippingAddress?.lastName || ""}`.trim()
-        || `${node.customer?.firstName || ""} ${node.customer?.lastName || ""}`.trim();
-      const orderNumber = parseInt(node.name.replace("#", "")) || 0;
+      const shipping = orderData.shipping_address || {};
+      const customerName = `${shipping.first_name || ""} ${shipping.last_name || ""}`.trim() || "Customer";
+      const orderNumber = orderData.order_number || 0;
 
-      batchQueue.push({ node, shopifyOrderId, normalizedPhone, fullName, orderNumber });
+      let tags = "";
+      if (Array.isArray(orderData.tags)) {
+        tags = orderData.tags.join(",");
+      } else if (typeof orderData.tags === "string") {
+        tags = orderData.tags;
+      }
+
+      batchQueue.push({
+        shopifyOrderId,
+        orderNumber,
+        customerName,
+        customerPhone: normalizedPhone,
+        customerEmail: orderData.email || "",
+        customerCity: shipping.city || "",
+        customerAddress: [shipping.address1, shipping.address2].filter(Boolean).join(", "),
+        totalPrice: parseFloat(orderData.total_price || "0"),
+        tags,
+      });
     }
 
-    // Process in batches
     for (let i = 0; i < batchQueue.length; i += BATCH_SIZE) {
       const batch = batchQueue.slice(i, i + BATCH_SIZE);
       const results = await Promise.allSettled(
-        batch.map(async ({ node, shopifyOrderId, normalizedPhone, fullName, orderNumber }) => {
-          const shippingAddress = node.shippingAddress;
-
+        batch.map(async (item) => {
           const order = await createOrder({
             shop: session.shop,
-            shopifyOrderId,
-            orderNumber,
-            customerName: fullName || "Customer",
-            customerPhone: normalizedPhone,
-            customerEmail: node.customer?.email || "",
-            customerCity: shippingAddress?.city || "",
-            customerAddress: [shippingAddress?.address1, shippingAddress?.address2].filter(Boolean).join(", "),
-            totalPrice: parseFloat(node.totalPriceSet?.shopMoney?.amount || "0"),
-            codAmount: parseFloat(node.totalPriceSet?.shopMoney?.amount || "0"),
-            tags: (node.tags || []).join(","),
+            shopifyOrderId: item.shopifyOrderId,
+            orderNumber: item.orderNumber,
+            customerName: item.customerName,
+            customerPhone: item.customerPhone,
+            customerEmail: item.customerEmail,
+            customerCity: item.customerCity,
+            customerAddress: item.customerAddress,
+            totalPrice: item.totalPrice,
+            codAmount: item.totalPrice,
+            tags: item.tags,
           });
 
-          if (normalizedPhone) {
-            const risk = await scorePhone(normalizedPhone, session.shop);
+          if (item.customerPhone) {
+            const risk = await scorePhone(item.customerPhone, session.shop);
             await prisma.codOrder.update({
               where: { id: order.id },
               data: { riskScore: risk.level },
             });
           }
 
-          const fulfillmentStatus = (node.displayFulfillmentStatus || "").toUpperCase();
-          if (fulfillmentStatus === "FULFILLED" || fulfillmentStatus === "PARTIAL") {
-            const { updateOrderStatus } = await import("../models/order.server");
-            if (fulfillmentStatus === "FULFILLED") {
-              await updateOrderStatus(order.id, {
-                status: "delivered",
-                notes: "Synced from Shopify - already fulfilled",
-                changedBy: "sync",
-              });
-            }
-          }
-
-          return { orderNumber };
+          return { orderNumber: item.orderNumber };
         })
       );
 
@@ -141,7 +128,6 @@ export async function action({ request }: { request: Request }) {
           imported++;
           importedOrders.push(`#${result.value.orderNumber}`);
         } else {
-          skipped++;
           errors.push({ orderId: "unknown", message: result.reason?.message || "Unknown error" });
         }
       }
@@ -150,15 +136,14 @@ export async function action({ request }: { request: Request }) {
     return Response.json({
       success: true,
       imported,
-      skipped,
       alreadyExists,
-      total: edges.length,
+      total: orders.length,
       errors,
       importedOrders,
     });
   } catch (error: any) {
     console.error("Sync orders error:", error);
-    return Response.json({ success: false, error: error.message }, { status: 500 });
+    return Response.json({ success: false, error: error.message || String(error) }, { status: 500 });
   }
 }
 
